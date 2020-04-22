@@ -49,19 +49,19 @@ struct motor {
 };
 
 // Serial communication structures.
-struct serial_com {
-  struct bluetooth bluetooth;
-  struct gyro gyro;
-};
-
 struct bluetooth {
   float msg_value;
 };
 
 struct gyro {
-  char msg[7];
+  char msg[10];
   bool initialized;
   float gyro_angle;
+};
+
+struct serial_com {
+  struct bluetooth bluetooth;
+  struct gyro gyro;
 };
 
 
@@ -103,9 +103,7 @@ void loop() {
 float PID_controller(float input_angle) {
   /* PID controller.
    * :param input_angle: angle from gyro.
-   * :return regulator product. */
-
-  unsigned long my_time = millis();
+   * :return: regulator product. */
   
   float error = regulator.setpoint - input_angle;
   regulator.integral = regulator.integral + error*dt;
@@ -120,18 +118,22 @@ float PID_controller(float input_angle) {
 void gyro_communication() {
   /* Read angle values from gyro via serial communication. */
 
-  while (Serial2.available() && !communication.gyro.initialized) {
-    if (Serial3.read() == 1) {
+  while (Serial3.available() && !communication.gyro.initialized) {
+    if (Serial3.read() == '#') {
       communication.gyro.initialized = true;
     }
   }
   
   int i=0;
-  while (Serial3.available() && i < 6 && communication.gyro.initialized) {
-    communication.gyro.msg[i++] = Serial3.read();
-  }
-  communication.gyro.msg[6]='\0';
-  communication.gyro.gyro_angle = atof(communication.gyro.msg);
+  if (Serial3.available()) {
+    while (Serial3.available() && i < 10 && communication.gyro.initialized) {
+      char input = Serial3.read();
+      if (input == '#') {
+        break;
+      }
+      communication.gyro.msg[i++] = input;
+    }
+    communication.gyro.gyro_angle = atof(communication.gyro.msg);
   }
 
   if (i > 0) {

@@ -43,7 +43,7 @@ void setup() {
   pinMode(Led_2, OUTPUT);
 
   actualAngle = 0;
-  Serial.print(1);
+  Serial.print('#');
 }
 
 void loop() {
@@ -53,6 +53,7 @@ void loop() {
   mpu6050.update();
   actualAngle = mpu6050.getAngleZ();
   Serial.print(actualAngle);
+  Serial.print('#');
 
   // Hello blinking.
   if (ledMode) {
