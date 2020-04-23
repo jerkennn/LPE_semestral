@@ -18,9 +18,12 @@
 * 20200421    kozelvo1    2      Basic form, PID controller implementation.
 * 20200422    kozelvo1    3      Variables changed into structs.
 *                                Added serial communication.
+* 20200423    kozelvo1    4      Added bluetooth communication.
 *
 |**********************************************************************
 */
+
+#define BUFFER_SIZE 64
 
 // Reguator structures.
 struct PID_parametres {
@@ -50,13 +53,15 @@ struct motor {
 
 // Serial communication structures.
 struct bluetooth {
-  float msg_value;
+  char in_data[BUFFER_SIZE];
+  char in_char;
 };
 
 struct gyro {
   char msg[10];
   bool initialized;
-  float gyro_angle;
+  float angle;
+  float prev_angle;
 };
 
 struct serial_com {
@@ -65,18 +70,18 @@ struct serial_com {
 };
 
 
+
 struct regulator_parametres regulator = {0.1, 0.2, 0.3, 0, 0, 0, 0};
 struct motor motor = {2, 255, 3, 255};
 struct serial_com communication;
 
 float dt = 0.1;
-float angle = 0;
   
 void setup() {
   /* Setup communication, processor pins and variables. */
-  Serial.begin(115200);
-  Serial2.begin(9600);
-  Serial3.begin(9600);
+  Serial.begin(115200); // USB communication.
+  Serial2.begin(9600); // Bluetooth communication.
+  Serial3.begin(9600); // Gyro communication.
 
   pinMode(motor.left.pin, OUTPUT);
   pinMode(motor.right.pin, OUTPUT);
@@ -86,6 +91,7 @@ void setup() {
 
 float PID_controller(float input_angle);
 void gyro_communication(); 
+void bluetooth_communication();
   
 void loop() {
   /* Main loop. */
@@ -93,8 +99,9 @@ void loop() {
   analogWrite(motor.left.pin, motor.left.value);
   analogWrite(motor.right.pin, motor.right.value);
 
-  float regulator_out = PID_controller(angle);
   gyro_communication();
+  bluetooth_communication();
+  float regulator_out = PID_controller(communication.gyro.angle);
 
   delay(100);
 }
@@ -133,12 +140,37 @@ void gyro_communication() {
       }
       communication.gyro.msg[i++] = input;
     }
-    communication.gyro.gyro_angle = atof(communication.gyro.msg);
+    float tmp = atof(communication.gyro.msg);
+    if (abs(tmp - communication.gyro.prev_angle) < 20) {
+      communication.gyro.prev_angle = communication.gyro.angle;
+      communication.gyro.angle = tmp;
+    }
   }
 
   if (i > 0) {
-    Serial.print(communication.gyro.gyro_angle);
+    Serial.print(communication.gyro.angle);
     Serial.print(" ");
     Serial.println((char*)communication.gyro.msg);
+  }
+}
+
+
+void bluetooth_communication() {
+  int i;
+  byte bytes_cnt = Serial2.available(); // Number of bytes of input mesg.
+  if (bytes_cnt) {
+    int handle_bytes = bytes_cnt; // Number of handle bytes.
+    int remaining_bytes=0; // Bytes burned off (buffer overrun).
+    if (handle_bytes >= BUFFER_SIZE-1) {
+      remaining_bytes = bytes_cnt - (BUFFER_SIZE-1); // Reduce bytes to buffer size.
+    }
+    for(i = 0; i < handle_bytes; i++) {
+      communication.bluetooth.in_char = Serial2.read();
+      communication.bluetooth.in_data[i] = communication.bluetooth.in_char;
+    }
+    communication.bluetooth.in_data[i]='\0';
+    for(i=0;i<remaining_bytes;i++) {
+      Serial2.read(); // Get rid of remaining bytes.
+    }
   }
 }
