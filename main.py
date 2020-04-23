@@ -1,3 +1,15 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""
+Robot car - desktop control app.
+"""
+__author__ = "Vojtech Kozel"
+__copyright__ = "Copyright 2020, LPE Project"
+__license__ = "MIT"
+__version__ = "1.0.2"
+__email__ = "kozelvo1@fel.cvut.cz"
+__status__ = "Production"
+
 from tkinter import *
 import serial
 import sys
@@ -5,6 +17,8 @@ import time
 
 program_mode = 0
 lights_mode = 0
+rc_order = 0
+
 port = "/dev/tty.HC-06-DevB"
 
 
@@ -17,6 +31,7 @@ class App:
         self.root = tk_root
         self.program_mode_int_var = None
         self.lights_mode_int_var = None
+        self.key_events = ["Up", "Down", "Left", "Right"]
 
     def update_variables(self):
         """
@@ -31,7 +46,7 @@ class App:
         Creates window with controls.
         """
         self.root.title('Robot car')
-        self.root.geometry("400x300+10+10")
+        self.root.geometry("400x100+10+10")
         self.program_mode_int_var = IntVar()
         self.lights_mode_int_var = IntVar()
         self.program_mode_int_var.set(0)
@@ -43,15 +58,24 @@ class App:
         r2 = Radiobutton(self.root, text="Remote control",
                          variable=self.program_mode_int_var, value=1,
                          command=self.update_variables())
-        r1.place(x=80, y=50)
-        r2.place(x=200, y=50)
+        r1.place(x=80, y=30)
+        r2.place(x=200, y=30)
 
         c1 = Checkbutton(self.root, text="Turn on lights",
                          variable=self.lights_mode_int_var,
                          command=self.update_variables())
-        c1.place(x=120, y=70)
+        c1.place(x=120, y=60)
 
         assert self.root is not None, "App is not created."
+        print("App created.")
+
+    def parse_event(self, event):
+        """
+        Parse keyboard events.
+        :param event: input event.
+        """
+        global rc_order
+        rc_order = self.key_events.index(event.keysym)
 
 
 class Bluetooth:
@@ -72,16 +96,16 @@ class Bluetooth:
             self.blue = None
         assert self.blue is not None, "App cannot be connected."
         self.blue.flushInput()  # Flush input buffer.
+        print("Bluetooth connected.")
 
-
-    def send_msg(self, msg):
+    def send_msg(self):
         """
         Send msg via bluetooth, encode it to bytes.
-        :param msg: string message to be sent.
         """
-        assert len(msg) != 0
-        self.blue.write(b"" + str.encode(str(program_mode)+str(lights_mode)))
-        time.sleep(0.2)  # A pause between bursts
+        msg = str(program_mode) + str(lights_mode) + str(rc_order)
+        assert len(msg) == 3
+        self.blue.write(b"" + str.encode(msg))
+        time.sleep(0.2)
 
     def read_msg(self):
         """
@@ -105,20 +129,19 @@ if __name__ == "__main__":
 
     window = Tk()
     application = App(window)
-    print("App created.")
+
     application.create_window()
     bluetooth = Bluetooth()
     bluetooth.connect()
-    print("Bluetooth connected.")
 
     while True:
         try:
             window.update()
-        except Exception as ex:
+            application.update_variables()
+            window.bind('<Key>', application.parse_event)
+            bluetooth.send_msg()
+        except (Exception or SystemError) as ex:
             break
-        application.update_variables()
-        print(program_mode, lights_mode)
-        bluetooth.send_msg(str(program_mode)+str(lights_mode))
 
     if bluetooth.blue:
         bluetooth.kill()
