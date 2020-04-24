@@ -19,11 +19,13 @@
 * 20200422    kozelvo1    3      Variables changed into structs.
 *                                Added serial communication.
 * 20200423    kozelvo1    4      Added bluetooth communication.
+* 20200424    kozelvo1    5      Added RC mode.
 *
 |**********************************************************************
 */
 
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 3
+#define MANUAL_FLASHLIGHTS 52
 
 // Reguator structures.
 struct PID_parametres {
@@ -60,8 +62,10 @@ struct bluetooth {
 struct gyro {
   char msg[10];
   bool initialized;
+  bool initial_input;
   float angle;
   float prev_angle;
+  float initialAngle;
 };
 
 struct serial_com {
@@ -69,11 +73,19 @@ struct serial_com {
   struct gyro gyro;
 };
 
+struct order {
+  char program_mode;
+  char rc_order;
+  char prev_rc_order;
+  char prev_program_mode;
+  char lights_mode;
+};
 
 
 struct regulator_parametres regulator = {0.1, 0.2, 0.3, 0, 0, 0, 0};
-struct motor motor = {2, 255, 3, 255};
+struct motor motor = {3, 255, 2, 255};
 struct serial_com communication;
+struct order order = {0, 0, 0, 0, 0};
 
 float dt = 0.1;
   
@@ -87,6 +99,7 @@ void setup() {
   pinMode(motor.right.pin, OUTPUT);
   
   communication.gyro.initialized = false;
+  communication.gyro.initial_input = true;
 }
 
 float PID_controller(float input_angle);
@@ -96,12 +109,61 @@ void bluetooth_communication();
 void loop() {
   /* Main loop. */
 
+  // Update program modes.
+  bluetooth_communication();
+  order.program_mode = communication.bluetooth.in_data[0];
+  order.lights_mode = communication.bluetooth.in_data[1] - 48;
+  order.rc_order= communication.bluetooth.in_data[2];
+
+  // If needed update gyro offset.
+  if ((order.program_mode && !order.prev_program_mode) || 
+      (order.rc_order != order.prev_rc_order)) {
+        communication.gyro.initial_input = true;
+      }
+  order.prev_program_mode = order.program_mode;
+  order.prev_rc_order = order.rc_order;
+  
+  gyro_communication();
+  
+  float regulator_out = PID_controller(communication.gyro.angle);
+  Serial.print(order.program_mode+10);
+  Serial.print(" ");
+  if (order.program_mode == 49) {
+        Serial.print("****");
+        Serial.print(" ");
+        if (order.rc_order == 48) { // Forward.
+           
+           motor.left.value = 255;
+           motor.right.value = (255-255); 
+        }
+        if (order.rc_order == 50) { // Left.
+           motor.left.value = 0;
+           motor.right.value = (255-255); 
+        }
+        if (order.rc_order == 49) { // Right.
+           motor.left.value = 255;
+           motor.right.value = (255-0); 
+        }
+  }
+  else {
+    motor.left.value = 0;
+    motor.right.value = (255-0); 
+  }
   analogWrite(motor.left.pin, motor.left.value);
   analogWrite(motor.right.pin, motor.right.value);
 
-  gyro_communication();
-  bluetooth_communication();
-  float regulator_out = PID_controller(communication.gyro.angle);
+  if (order.lights_mode) {
+    digitalWrite(MANUAL_FLASHLIGHTS, HIGH);
+  }
+  else {
+    digitalWrite(MANUAL_FLASHLIGHTS, LOW);
+  }
+  
+  Serial.print(communication.gyro.angle);
+  Serial.print(" ");
+  Serial.print(communication.bluetooth.in_data);
+  Serial.println();
+  
 
   delay(100);
 }
@@ -140,22 +202,30 @@ void gyro_communication() {
       }
       communication.gyro.msg[i++] = input;
     }
+    
     float tmp = atof(communication.gyro.msg);
-    if (abs(tmp - communication.gyro.prev_angle) < 20) {
+
+    // Offset.
+    if (communication.gyro.initial_input) {
+      communication.gyro.initialAngle = tmp;
+      communication.gyro.prev_angle = tmp;
+      communication.gyro.initial_input = false;
+    }
+    tmp -= communication.gyro.initialAngle;
+    
+    if (abs(tmp - communication.gyro.prev_angle) < 60) {
       communication.gyro.prev_angle = communication.gyro.angle;
       communication.gyro.angle = tmp;
     }
-  }
-
-  if (i > 0) {
-    Serial.print(communication.gyro.angle);
-    Serial.print(" ");
-    Serial.println((char*)communication.gyro.msg);
   }
 }
 
 
 void bluetooth_communication() {
+  /* Read orders via serial bluetooth communication. */
+  /* communication.bluetooth.in_data is array in form:
+     [program_mode, lights_mode, rc_order]*/
+  
   int i;
   byte bytes_cnt = Serial2.available(); // Number of bytes of input mesg.
   if (bytes_cnt) {
@@ -164,11 +234,13 @@ void bluetooth_communication() {
     if (handle_bytes >= BUFFER_SIZE-1) {
       remaining_bytes = bytes_cnt - (BUFFER_SIZE-1); // Reduce bytes to buffer size.
     }
-    for(i = 0; i < handle_bytes; i++) {
-      communication.bluetooth.in_char = Serial2.read();
-      communication.bluetooth.in_data[i] = communication.bluetooth.in_char;
-    }
+    if (handle_bytes == 3) { // filter
+      for(i = 0; i < handle_bytes; i++) {
+        communication.bluetooth.in_char = Serial2.read();
+          communication.bluetooth.in_data[i] = communication.bluetooth.in_char;
+      }
     communication.bluetooth.in_data[i]='\0';
+    }
     for(i=0;i<remaining_bytes;i++) {
       Serial2.read(); // Get rid of remaining bytes.
     }
