@@ -6,7 +6,7 @@ Robot car - desktop control app.
 __author__ = "Vojtech Kozel"
 __copyright__ = "Copyright 2020, LPE Project"
 __license__ = "MIT"
-__version__ = "1.0.2"
+__version__ = "1.3.1"
 __email__ = "kozelvo1@fel.cvut.cz"
 __status__ = "Production"
 
@@ -21,6 +21,8 @@ rc_order = 0
 
 port = "/dev/tty.HC-06-DevB"
 
+#TODO: stop key event
+
 
 class App:
     def __init__(self, tk_root):
@@ -31,7 +33,7 @@ class App:
         self.root = tk_root
         self.program_mode_int_var = None
         self.lights_mode_int_var = None
-        self.key_events = ["Up", "Down", "Left", "Right"]
+        self.key_events = ["Up", "Left", "Right"]
 
     def update_variables(self):
         """
@@ -74,8 +76,9 @@ class App:
         Parse keyboard events.
         :param event: input event.
         """
-        global rc_order
-        rc_order = self.key_events.index(event.keysym)
+        if event.keysym in self.key_events:
+            global rc_order
+            rc_order = self.key_events.index(event.keysym)
 
 
 class Bluetooth:
