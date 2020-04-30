@@ -6,7 +6,7 @@ Robot car - desktop control app.
 __author__ = "Vojtech Kozel"
 __copyright__ = "Copyright 2020, LPE Project"
 __license__ = "MIT"
-__version__ = "1.3.1"
+__version__ = "1.4.0"
 __email__ = "kozelvo1@fel.cvut.cz"
 __status__ = "Production"
 
@@ -17,7 +17,7 @@ import time
 
 program_mode = 0
 lights_mode = 0
-rc_order = 0
+rc_order = 3
 
 port = "/dev/tty.HC-06-DevB"
 
@@ -33,7 +33,7 @@ class App:
         self.root = tk_root
         self.program_mode_int_var = None
         self.lights_mode_int_var = None
-        self.key_events = ["Up", "Left", "Right"]
+        self.key_events = ["Up", "Left", "Right", "space", "Down"]
 
     def update_variables(self):
         """
