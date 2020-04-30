@@ -20,12 +20,18 @@
 *                                Added serial communication.
 * 20200423    kozelvo1    4      Added bluetooth communication.
 * 20200424    kozelvo1    5      Added RC mode.
+* 20200429    kozelvo1    6      Setup driving regulator.
+* 20200430    kozelvo1    7      Revision of code.
+*                                Added line regulator.
 *
 |**********************************************************************
 */
 
+
 #define BUFFER_SIZE 3
 #define MANUAL_FLASHLIGHTS 52
+#define IR_LEFT 51
+#define IR_RIGHT 50
 
 // Reguator structures.
 struct PID_parametres {
@@ -39,13 +45,14 @@ struct regulator_parametres {
   float previous_error;
   float integral;
   float setpoint;
-  float regulator_out;
 };
 
 // Motors structures.
 struct motor_parametres {
-  unsigned char pin;
-  unsigned char value;
+  unsigned char pin1;
+  unsigned char pin2;
+  float value1;
+  float value2;
 };
 
 struct motor {
@@ -82,75 +89,135 @@ struct order {
 };
 
 
-struct regulator_parametres regulator = {0.1, 0.2, 0.3, 0, 0, 0, 0};
-struct motor motor = {3, 255, 2, 255};
+struct regulator_parametres driving_regulator = {3, 2.5, 1, 0, 0, 0};
+struct regulator_parametres line_regulator = {1, 0, 0, 0, 0, 0};
+struct motor motor = {2, 3, 255, 0, 4, 5, 255, 0};
 struct serial_com communication;
-struct order order = {0, 0, 0, 0, 0};
+struct order order = {0, 3, 3, 0, 0};
 
 float dt = 0.1;
   
 void setup() {
   /* Setup communication, processor pins and variables. */
-  Serial.begin(115200); // USB communication.
-  Serial2.begin(9600); // Bluetooth communication.
-  Serial3.begin(9600); // Gyro communication.
+  Serial.begin(9600); // USB communication.
+  Serial2.begin(9600); // Gyro communication.
+  Serial3.begin(9600); // Bluetooth communication.
 
-  pinMode(motor.left.pin, OUTPUT);
-  pinMode(motor.right.pin, OUTPUT);
+  pinMode(motor.left.pin1, OUTPUT);
+  pinMode(motor.right.pin1, OUTPUT);
+  pinMode(motor.left.pin2, OUTPUT);
+  pinMode(motor.right.pin2, OUTPUT);
+  pinMode(IR_LEFT, INPUT);
+  pinMode(IR_RIGHT, INPUT);
   
   communication.gyro.initialized = false;
   communication.gyro.initial_input = true;
 }
 
-float PID_controller(float input_angle);
+float driving_PID_controller(float input_angle);
+float line_PI_controller(int line_error);
 void gyro_communication(); 
 void bluetooth_communication();
   
 void loop() {
   /* Main loop. */
 
+  // Check for "line situation".
+  bool left_ir = digitalRead(IR_LEFT);
+  bool right_ir = digitalRead(IR_RIGHT);
+  bool init_line_forward = false;
+  if (!left_ir && !right_ir) inti_line_forward = true;
+
   // Update program modes.
   bluetooth_communication();
-  order.program_mode = communication.bluetooth.in_data[0];
+  order.program_mode = communication.bluetooth.in_data[0] - 48;
   order.lights_mode = communication.bluetooth.in_data[1] - 48;
-  order.rc_order= communication.bluetooth.in_data[2];
+  order.rc_order= communication.bluetooth.in_data[2] - 48;
 
-  // If needed update gyro offset.
-  if ((order.program_mode && !order.prev_program_mode) || 
-      (order.rc_order != order.prev_rc_order)) {
+  // Init new direction.
+  if ((order.program_mode == 1 && order.prev_program_mode != 1) || 
+      (order.rc_order != order.prev_rc_order)
+      (!init_line_forward)) {
         communication.gyro.initial_input = true;
+        driving_regulator.integral = 0;
+        driving_regulator.previous_error = 0; 
       }
+  // Init manual control.
+  if (order.program_mode == 1 && order.prev_program_mode != 1) {
+    motor.left.value1 = 0;
+    motor.left.value2 = 0;
+    motor.right.value1 = 0;
+    motor.right.value2 = 0;
+    order.rc_order = 3;
+  }
+  
   order.prev_program_mode = order.program_mode;
   order.prev_rc_order = order.rc_order;
   
   gyro_communication();
   
-  float regulator_out = PID_controller(communication.gyro.angle);
-  Serial.print(order.program_mode+10);
-  Serial.print(" ");
-  if (order.program_mode == 49) {
-        Serial.print("****");
-        Serial.print(" ");
-        if (order.rc_order == 48) { // Forward.
-           
-           motor.left.value = 255;
-           motor.right.value = (255-255); 
+  float driving_regulator_out = driving_PID_controller(communication.gyro.angle);
+
+  if (order.program_mode == 1) {
+        if (order.rc_order == 0) { // Forward.
+          motor.right.value1 = 255;
+          float tmp = motor.right.value1;
+          tmp += driving_regulator_out;
+          tmp = round(tmp);
+          if (tmp > 255) tmp = 255;
+          if (tmp < 0) tmp = 0;
+          motor.left.value1 = 255;  motor.left.value2 = 0;
+          motor.right.value1 = tmp; motor.right.value2 = 0;
         }
-        if (order.rc_order == 50) { // Left.
-           motor.left.value = 0;
-           motor.right.value = (255-255); 
+        if (order.rc_order == 2) { // Left.
+           motor.left.value1 = 255; motor.left.value2 = 0;
+           motor.right.value1 = 0;  motor.right.value2 = 255; 
         }
-        if (order.rc_order == 49) { // Right.
-           motor.left.value = 255;
-           motor.right.value = (255-0); 
+        if (order.rc_order == 1) { // Right.
+           motor.left.value1 = 0;    motor.left.value2 = 255;
+           motor.right.value1 = 255; motor.right.value2 = 0;
+        }
+        if (order.rc_order == 3) { // Stop.
+            motor.left.value1 = 0;  motor.left.value2 = 0;
+            motor.right.value1 = 0; motor.right.value2 = 0;
+        }
+        if (order.rc_order == 4) { // Back.
+          motor.right.value2 = 255;
+          float tmp = motor.right.value2;
+          //tmp -= driving_regulator_out;
+          tmp = round(tmp); 
+          if (tmp > 255) tmp = 255;
+          if (tmp < 0) tmp = 0;
+          motor.left.value1 = 0;  motor.left.value2 = 255;
+          motor.right.value1 = 0; motor.right.value2 = tmp;
         }
   }
   else {
-    motor.left.value = 0;
-    motor.right.value = (255-0); 
+    motor.left.value1 = 255;  motor.left.value2 = 0;
+    motor.right.value1 = 255; motor.right.value2 = 0;
+    if (letf_sensor and !right_sensor) { // Left sensor is above a line.
+      motor.left.value1 -= line_PI_controller(1);
+    }
+    else if (!letf_sensor and right_sensor) { // Right sensor is above a line.
+      motor.right.value1 -= line_PI_controller(1);
+    }
+    else
+    {
+      line_regulator.integral = 0;
+      motor.right.value1 = 255;
+      float tmp = motor.right.value1;
+      tmp += driving_regulator_out;
+      tmp = round(tmp);
+      if (tmp > 255) tmp = 255;
+      if (tmp < 0) tmp = 0;
+      motor.right.value1 = tmp;
+    }
+    
   }
-  analogWrite(motor.left.pin, motor.left.value);
-  analogWrite(motor.right.pin, motor.right.value);
+  analogWrite(motor.left.pin1,  motor.left.value1);
+  analogWrite(motor.left.pin2,  motor.left.value2);
+  analogWrite(motor.right.pin1, motor.right.value1);
+  analogWrite(motor.right.pin2, motor.right.value2);
 
   if (order.lights_mode) {
     digitalWrite(MANUAL_FLASHLIGHTS, HIGH);
@@ -158,45 +225,54 @@ void loop() {
   else {
     digitalWrite(MANUAL_FLASHLIGHTS, LOW);
   }
-  
+
   Serial.print(communication.gyro.angle);
   Serial.print(" ");
   Serial.print(communication.bluetooth.in_data);
   Serial.println();
-  
 
   delay(100);
 }
 
 
-float PID_controller(float input_angle) {
-  /* PID controller.
+float line_PI_controller(int error) {
+  /* driving PID controller.
+   * :param (int) error: type of situation.
+   * :return: regulator product. */
+  
+  line_regulator.integral += error;
+  return (line_regulator.constants.Kp*error) + 
+         (line_regulator.constants.Ki*line_regulator.integral);
+}
+
+
+float driving_PID_controller(float input_angle) {
+  /* driving PID controller.
    * :param input_angle: angle from gyro.
    * :return: regulator product. */
   
-  float error = regulator.setpoint - input_angle;
-  regulator.integral = regulator.integral + error*dt;
-  float derivative = (error - regulator.previous_error)/dt;
-  regulator.previous_error = error;
+  float error = driving_regulator.setpoint - input_angle;
+  driving_regulator.integral = driving_regulator.integral + error*dt;
+  float derivative = (error - driving_regulator.previous_error)/dt;
+  driving_regulator.previous_error = error;
 
-  return (regulator.constants.Kp*error + regulator.constants.Ki*
-      regulator.integral + regulator.constants.Kd*derivative);
+  return (driving_regulator.constants.Kp*error + driving_regulator.constants.Ki*
+          driving_regulator.integral + driving_regulator.constants.Kd*derivative);
 }
 
 
 void gyro_communication() {
   /* Read angle values from gyro via serial communication. */
-
-  while (Serial3.available() && !communication.gyro.initialized) {
-    if (Serial3.read() == '#') {
+  while (Serial2.available() && !communication.gyro.initialized) {
+    if (Serial2.read() == '#') {
       communication.gyro.initialized = true;
     }
   }
   
   int i=0;
-  if (Serial3.available()) {
-    while (Serial3.available() && i < 10 && communication.gyro.initialized) {
-      char input = Serial3.read();
+  if (Serial2.available()) {
+    while (Serial2.available() && i < 10 && communication.gyro.initialized) {
+      char input = Serial2.read();
       if (input == '#') {
         break;
       }
@@ -227,7 +303,7 @@ void bluetooth_communication() {
      [program_mode, lights_mode, rc_order]*/
   
   int i;
-  byte bytes_cnt = Serial2.available(); // Number of bytes of input mesg.
+  byte bytes_cnt = Serial3.available(); // Number of bytes of input mesg.
   if (bytes_cnt) {
     int handle_bytes = bytes_cnt; // Number of handle bytes.
     int remaining_bytes=0; // Bytes burned off (buffer overrun).
@@ -236,13 +312,13 @@ void bluetooth_communication() {
     }
     if (handle_bytes == 3) { // filter
       for(i = 0; i < handle_bytes; i++) {
-        communication.bluetooth.in_char = Serial2.read();
+        communication.bluetooth.in_char = Serial3.read();
           communication.bluetooth.in_data[i] = communication.bluetooth.in_char;
       }
     communication.bluetooth.in_data[i]='\0';
     }
     for(i=0;i<remaining_bytes;i++) {
-      Serial2.read(); // Get rid of remaining bytes.
+      Serial3.read(); // Get rid of remaining bytes.
     }
   }
 }
