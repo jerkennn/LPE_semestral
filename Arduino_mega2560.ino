@@ -126,7 +126,9 @@ void loop() {
   bool left_ir = digitalRead(IR_LEFT);
   bool right_ir = digitalRead(IR_RIGHT);
   bool init_line_forward = false;
-  if (!left_ir && !right_ir) inti_line_forward = true;
+  if (!left_ir && !right_ir) {
+    init_line_forward = true;
+  }
 
   // Update program modes.
   bluetooth_communication();
@@ -136,7 +138,7 @@ void loop() {
 
   // Init new direction.
   if ((order.program_mode == 1 && order.prev_program_mode != 1) || 
-      (order.rc_order != order.prev_rc_order)
+      (order.rc_order != order.prev_rc_order) ||
       (!init_line_forward)) {
         communication.gyro.initial_input = true;
         driving_regulator.integral = 0;
@@ -195,14 +197,13 @@ void loop() {
   else {
     motor.left.value1 = 255;  motor.left.value2 = 0;
     motor.right.value1 = 255; motor.right.value2 = 0;
-    if (letf_sensor and !right_sensor) { // Left sensor is above a line.
+    if (left_ir && !right_ir) { // Left sensor is above a line.
       motor.left.value1 -= line_PI_controller(1);
     }
-    else if (!letf_sensor and right_sensor) { // Right sensor is above a line.
+    else if (!left_ir && right_ir) { // Right sensor is above a line.
       motor.right.value1 -= line_PI_controller(1);
     }
-    else
-    {
+    else {
       line_regulator.integral = 0;
       motor.right.value1 = 255;
       float tmp = motor.right.value1;
@@ -212,7 +213,6 @@ void loop() {
       if (tmp < 0) tmp = 0;
       motor.right.value1 = tmp;
     }
-    
   }
   analogWrite(motor.left.pin1,  motor.left.value1);
   analogWrite(motor.left.pin2,  motor.left.value2);
