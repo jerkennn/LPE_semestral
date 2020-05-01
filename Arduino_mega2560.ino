@@ -23,6 +23,7 @@
 * 20200429    kozelvo1    6      Setup driving regulator.
 * 20200430    kozelvo1    7      Revision of code.
 *                                Added line regulator.
+* 20200501    kozelvo1    8      Setup line follower regulator.
 *
 |**********************************************************************
 */
@@ -90,7 +91,7 @@ struct order {
 
 
 struct regulator_parametres driving_regulator = {3, 2.5, 1, 0, 0, 0};
-struct regulator_parametres line_regulator = {1, 0, 0, 0, 0, 0};
+struct regulator_parametres line_regulator = {90, 70, 30, 0, 0, 0};
 struct motor motor = {2, 3, 255, 0, 4, 5, 255, 0};
 struct serial_com communication;
 struct order order = {0, 3, 3, 0, 0};
@@ -197,6 +198,10 @@ void loop() {
   else {
     motor.left.value1 = 255;  motor.left.value2 = 0;
     motor.right.value1 = 255; motor.right.value2 = 0;
+    Serial.print(left_ir);
+    Serial.print(" ");
+    Serial.print(right_ir);
+    Serial.print(" ");
     if (left_ir && !right_ir) { // Left sensor is above a line.
       motor.left.value1 -= line_PI_controller(1);
     }
@@ -204,6 +209,7 @@ void loop() {
       motor.right.value1 -= line_PI_controller(1);
     }
     else {
+      line_regulator.previous_error = 10;
       line_regulator.integral = 0;
       motor.right.value1 = 255;
       float tmp = motor.right.value1;
@@ -213,6 +219,12 @@ void loop() {
       if (tmp < 0) tmp = 0;
       motor.right.value1 = tmp;
     }
+    Serial.print(motor.left.value1);
+    Serial.print(" ");
+    Serial.print(motor.right.value1);
+    Serial.print(" ");
+    //motor.left.value1 = 0;  motor.left.value2 = 0;
+    //motor.right.value1 = 0; motor.right.value2 = 0;
   }
   analogWrite(motor.left.pin1,  motor.left.value1);
   analogWrite(motor.left.pin2,  motor.left.value2);
@@ -241,8 +253,12 @@ float line_PI_controller(int error) {
    * :return: regulator product. */
   
   line_regulator.integral += error;
+  if (line_regulator.previous_error > 0) {
+    line_regulator.previous_error--;
+  }
   return (line_regulator.constants.Kp*error) + 
-         (line_regulator.constants.Ki*line_regulator.integral);
+         (line_regulator.constants.Ki*line_regulator.integral) + 
+         (line_regulator.constants.Kd*line_regulator.previous_error);
 }
 
 
@@ -280,16 +296,20 @@ void gyro_communication() {
     }
     
     float tmp = atof(communication.gyro.msg);
+    if (tmp > 360) tmp-=360;
+    if (tmp < -360) tmp+=360;
+    Serial.print(tmp);
+    Serial.print(" ");
+    if (abs(tmp - communication.gyro.initialAngle - communication.gyro.prev_angle) < 400) {
 
-    // Offset.
-    if (communication.gyro.initial_input) {
-      communication.gyro.initialAngle = tmp;
-      communication.gyro.prev_angle = tmp;
-      communication.gyro.initial_input = false;
-    }
-    tmp -= communication.gyro.initialAngle;
-    
-    if (abs(tmp - communication.gyro.prev_angle) < 60) {
+      // Offset.
+      if (communication.gyro.initial_input) {
+        communication.gyro.initialAngle = tmp;
+        communication.gyro.prev_angle = tmp;
+        communication.gyro.initial_input = false;
+      }
+      tmp -= communication.gyro.initialAngle;
+        
       communication.gyro.prev_angle = communication.gyro.angle;
       communication.gyro.angle = tmp;
     }
