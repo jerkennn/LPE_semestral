@@ -91,7 +91,7 @@ struct order {
 
 
 struct regulator_parametres driving_regulator = {3, 2.5, 1, 0, 0, 0};
-struct regulator_parametres line_regulator = {25, 18, 14, 0, 0, 0};
+struct regulator_parametres line_regulator = {25.2, 16.8, 14, 0, 0, 0}; // ku= 42, tu=2.8 zvysena kd aby to rychleji reagovalo
 struct motor motor = {2, 3, 255, 0, 4, 5, 255, 0};
 struct serial_com communication;
 struct order order = {0, 3, 3, 0, 0};
@@ -139,7 +139,7 @@ void loop() {
   // Init new direction.
   if ((order.program_mode == 1 && order.prev_program_mode != 1) || 
       (order.rc_order != order.prev_rc_order) ||
-      (!init_line_forward)) {
+      (!init_line_forward && order.program_mode == 0)) {
         communication.gyro.initial_input = true;
         driving_regulator.integral = 0;
         driving_regulator.previous_error = 0; 
@@ -153,6 +153,7 @@ void loop() {
   // Init line follower mode.
   if (order.program_mode == 0 && order.prev_program_mode != 0) {
     motor.left.value1 = 255; motor.right.value1 = 255; 
+    motor.left.value2 = 0; motor.right.value2 = 0; 
   }
   
   order.prev_program_mode = order.program_mode; order.prev_rc_order = order.rc_order;
@@ -195,29 +196,20 @@ void loop() {
           motor.right.value1 = 0; motor.right.value2 = tmp;
         }
   }
-  else {
+  else { // Line follower mode.
     motor.left.value2 = 0; motor.right.value2 = 0;
-    /*
-    Serial.print(left_ir);
-    Serial.print(" ");
-    Serial.print(right_ir);
-    Serial.print(" ");
-    Serial.print(line_regulator.integral);
-    Serial.print(" ");
-    Serial.print(line_regulator.previous_error);
-    Serial.print(" ");
-    */
+
     if (left_ir && !right_ir) { // Left sensor is above a line.
       float tmp = line_PI_controller(1);
-      if (tmp > 200) tmp = 200; //Maybe delete this
+      if (tmp > 200) tmp = 200;
       motor.left.value1 = 255 - tmp; motor.right.value1 = 255;
     }
     else if (!left_ir && right_ir) { // Right sensor is above a line.
       float tmp = line_PI_controller(1);
-      if (tmp > 200) tmp = 200; //Maybe delete this
+      if (tmp > 200) tmp = 200;
       motor.right.value1 = 255 - tmp; motor.left.value1 = 255;
     }
-    else {
+    else { // Forward.
       line_regulator.previous_error = 10; line_regulator.integral = 0;
       motor.left.value1=255; motor.right.value1=255;
 
@@ -228,12 +220,6 @@ void loop() {
       if (tmp < 0) tmp = 0;
       motor.right.value1 = tmp;
     }
-    /*
-    Serial.print(motor.left.value1);
-    Serial.print(" ");
-    Serial.print(motor.right.value1);
-    Serial.println(" ");
-    */
   }
   analogWrite(motor.left.pin1,  motor.left.value1);  analogWrite(motor.left.pin2,  motor.left.value2);
   analogWrite(motor.right.pin1, motor.right.value1); analogWrite(motor.right.pin2, motor.right.value2);
@@ -241,11 +227,6 @@ void loop() {
   if (order.lights_mode) digitalWrite(MANUAL_FLASHLIGHTS, HIGH);
   else digitalWrite(MANUAL_FLASHLIGHTS, LOW);
   
-  Serial.print(communication.gyro.angle);
-  Serial.print(" ");
-  Serial.print(communication.bluetooth.in_data);
-  Serial.println(); 
-
   delay(100);
 }
 
@@ -298,8 +279,6 @@ void gyro_communication() {
     
     float tmp = atof(communication.gyro.msg);
     tmp = ((int)tmp)%360;
-    Serial.print(tmp);
-    Serial.print(" ");
     if (abs(tmp - communication.gyro.initialAngle - communication.gyro.prev_angle) < 400) {
 
       // Offset.
