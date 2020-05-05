@@ -20,9 +20,9 @@ Serial communication with bluetooth (HC-06): serial port no. 3 (Rx digital pin 1
 
 ## Desktop app
 ### Keys:
-Up &~ forward \
-Down &~ back \
-Left &~ left \
-Right &~ right \
-Spacce &~ stop
+Up ~ forward \
+Down ~ back \
+Left ~ left \
+Right ~ right \
+Spacce ~ stop
 ![Alt text](app_window.png?raw=true "Title")
