@@ -24,5 +24,6 @@ Up ~ forward \
 Down ~ back \
 Left ~ left \
 Right ~ right \
-Spacce ~ stop
+Space ~ stop \
+
 ![Alt text](app_window.png?raw=true "Title")
