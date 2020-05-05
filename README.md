@@ -16,7 +16,13 @@ motor.left.pin2: 3 \
 motor.right.pin1: 4 \
 motor.right.pin2: 5 \
 Serial communication with Arduino UNO: serial port no. 2 (Rx digital pin 17, Tx digital pin 16) \
-Serial communication with bluetooth (HC-06): serial port no. 3 (Rx digital pin 15, Tx digital pin 14) \ 
+Serial communication with bluetooth (HC-06): serial port no. 3 (Rx digital pin 15, Tx digital pin 14)
 
 ## Desktop app
+### Keys:
+Up &~ forward \
+Down &~ back \
+Left &~ left \
+Right &~ right \
+Spacce &~ stop
 ![Alt text](app_window.png?raw=true "Title")
